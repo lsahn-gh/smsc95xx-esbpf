@@ -7,6 +7,10 @@ obj-$(CONFIG_SMSC95XX_DRV) += smsc95xx.o
 smsc95xx-objs := \
 	smsc95xx-main.o
 
+smsc95xx-objs += \
+	esbpf/core.o \
+	esbpf/proc.o
+
 else
 
 KDIR  := /lib/modules/$(shell uname -r)/build
