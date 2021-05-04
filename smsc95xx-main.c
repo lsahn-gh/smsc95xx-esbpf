@@ -75,8 +75,8 @@ struct smsc95xx_priv {
 #if defined(USE_ESBPF)
 	struct proc_dir_entry *root;
 	struct esbpf_helper esb_helper;
-#define helper_filter esb_helper.filter
-#define helper_filter_lock esb_helper.filter_lock
+#define helper_filter esb_helper.rx_filter
+#define helper_filter_lock esb_helper.rx_filter_lock
 #endif
 };
 
