@@ -1467,6 +1467,8 @@ static void smsc95xx_unbind(struct usbnet *dev, struct usb_interface *intf)
 		if (filt)
 			esbpf_release_filter_raw(filt);
 
+		barrier();
+
 		if (pdata->root) {
 			proc_remove(pdata->root);
 			pdata->root = NULL;
