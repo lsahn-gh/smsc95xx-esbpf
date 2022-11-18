@@ -24,7 +24,17 @@
 #include <linux/phy.h>
 #include <net/selftests.h>
 
+#if defined(USE_ESBPF)
+#include "smsc95xx-main.h"
+#else /* !defined */
 #include "smsc95xx.h"
+#endif /* USE_ESBPF */
+
+#if defined(USE_ESBPF)
+#include <esbpf/helper.h>
+#include <esbpf/core.h>
+#include <esbpf/proc.h>
+#endif
 
 #define SMSC_CHIPNAME			"smsc95xx"
 #define SMSC_DRIVER_VERSION		"2.0.0"
@@ -72,6 +82,12 @@ struct smsc95xx_priv {
 	struct mii_bus *mdiobus;
 	struct phy_device *phydev;
 	struct task_struct *pm_task;
+#if defined(USE_ESBPF)
+	struct proc_dir_entry *root;
+	struct esbpf_helper esb_helper;
+#define helper_filter esb_helper.rx_filter
+#define helper_filter_lock esb_helper.rx_filter_lock
+#endif /* USE_ESBPF */
 };
 
 static bool turbo_mode = true;
@@ -1290,6 +1306,18 @@ static int smsc95xx_bind(struct usbnet *dev, struct usb_interface *intf)
 	dev->net->max_mtu = ETH_DATA_LEN;
 	dev->hard_mtu = dev->net->mtu + dev->net->hard_header_len;
 
+#if defined(USE_ESBPF)
+	esbpf_helper_init(&pdata->esb_helper);
+
+	/* procfs */
+	if ((pdata->root = proc_mkdir("smsc95xx", NULL)) &&
+	    esbpf_proc_init(pdata->root, &pdata->esb_helper))
+	{
+		proc_remove(pdata->root);
+		pdata->root = NULL;
+	}
+#endif /* USE_ESBPF */
+
 	ret = phy_connect_direct(dev->net, pdata->phydev,
 				 &smsc95xx_handle_link_change,
 				 PHY_INTERFACE_MODE_MII);
@@ -1325,6 +1353,9 @@ free_pdata:
 static void smsc95xx_unbind(struct usbnet *dev, struct usb_interface *intf)
 {
 	struct smsc95xx_priv *pdata = dev->driver_priv;
+#if defined(USE_ESBPF)
+	struct esbpf_filter *filt;
+#endif
 
 	phy_disconnect(dev->net->phydev);
 	mdiobus_unregister(pdata->mdiobus);
@@ -1332,6 +1363,25 @@ static void smsc95xx_unbind(struct usbnet *dev, struct usb_interface *intf)
 	irq_dispose_mapping(irq_find_mapping(pdata->irqdomain, PHY_HWIRQ));
 	irq_domain_remove(pdata->irqdomain);
 	irq_domain_free_fwnode(pdata->irqfwnode);
+
+#if defined(USE_ESBPF)
+	spin_lock(&pdata->helper_filter_lock);
+	filt = rcu_dereference_protected(pdata->helper_filter,
+		    lockdep_is_held(&pdata->helper_filter_lock));
+	if (filt)
+		rcu_assign_pointer(pdata->helper_filter, NULL);
+	spin_unlock(&pdata->helper_filter_lock);
+
+	if (filt)
+		esbpf_release_filter_raw(filt);
+
+	barrier();
+
+	if (pdata->root) {
+		proc_remove(pdata->root);
+		pdata->root = NULL;
+	}
+#endif /* USE_ESBPF */
 	netif_dbg(dev, ifdown, dev->net, "free pdata\n");
 	kfree(pdata);
 }
@@ -1883,6 +1933,11 @@ static void smsc95xx_rx_csum_offload(struct sk_buff *skb)
 
 static int smsc95xx_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 {
+#if defined(USE_ESBPF)
+	struct smsc95xx_priv *pdata = (struct smsc95xx_priv *)(dev->data[0]);
+	struct esbpf_filter *filt;
+#endif
+
 	/* This check is no longer done by usbnet */
 	if (skb->len < dev->net->hard_header_len)
 		return 0;
@@ -1924,6 +1979,19 @@ static int smsc95xx_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 					  "size err header=0x%08x\n", header);
 				return 0;
 			}
+
+#if defined(USE_ESBPF)
+			rcu_read_lock();
+			filt = rcu_dereference(pdata->helper_filter);
+			if (filt && esbpf_run_filter(filt, skb) > 0) {
+				rcu_read_unlock();
+				/* If the _skb_ is matched to the filter rule,
+				 * don't pass it to upper layers. Let it get
+				 * cleaned up instead. */
+				return 0;
+			}
+			rcu_read_unlock();
+#endif /* USE_ESBPF */
 
 			/* last frame in this batch */
 			if (skb->len == size) {
