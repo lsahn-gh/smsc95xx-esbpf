@@ -1,5 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0
 
+CONFIG_MODULE_SIG=n # just test
+
+ccflags-y += -I$(PWD) -DUSE_ESBPF
+
 ifneq ($(KERNELRELEASE),)
 
 obj-$(CONFIG_SMSC95XX_DRV) += smsc95xx.o
