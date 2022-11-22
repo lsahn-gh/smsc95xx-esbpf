@@ -1,4 +1,4 @@
 [submodule "esbpf"]
 	path = esbpf
 	url = https://github.com/memnoth/esbpf
-	branch = master
+	branch = master-next
