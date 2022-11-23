@@ -24,11 +24,7 @@
 #include <linux/phy.h>
 #include <net/selftests.h>
 
-#if defined(USE_ESBPF)
 #include "smsc95xx-main.h"
-#else /* !defined */
-#include "smsc95xx.h"
-#endif /* USE_ESBPF */
 
 #if defined(USE_ESBPF)
 #include <esbpf/helper.h>
