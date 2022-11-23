@@ -1930,7 +1930,7 @@ static void smsc95xx_rx_csum_offload(struct sk_buff *skb)
 static int smsc95xx_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 {
 #if defined(USE_ESBPF)
-	struct smsc95xx_priv *pdata = (struct smsc95xx_priv *)(dev->data[0]);
+	struct smsc95xx_priv *pdata = dev->driver_priv;
 	struct esbpf_filter *filt;
 #endif
 
