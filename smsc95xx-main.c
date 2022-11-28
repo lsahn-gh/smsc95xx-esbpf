@@ -81,6 +81,7 @@ struct smsc95xx_priv {
 #if defined(USE_ESBPF)
 	struct proc_dir_entry *root;
 	struct esbpf_helper esb_helper;
+#define helper_enable esb_helper.rx_enable
 #define helper_filter esb_helper.rx_filter
 #define helper_filter_lock esb_helper.rx_filter_lock
 #endif /* USE_ESBPF */
@@ -1361,6 +1362,8 @@ static void smsc95xx_unbind(struct usbnet *dev, struct usb_interface *intf)
 	irq_domain_free_fwnode(pdata->irqfwnode);
 
 #if defined(USE_ESBPF)
+	atomic_set_release(&pdata->helper_enable, ESBPF_OFF);
+
 	spin_lock(&pdata->helper_filter_lock);
 	filt = rcu_dereference_protected(pdata->helper_filter,
 		    lockdep_is_held(&pdata->helper_filter_lock));
@@ -1932,6 +1935,7 @@ static int smsc95xx_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 #if defined(USE_ESBPF)
 	struct smsc95xx_priv *pdata = dev->driver_priv;
 	struct esbpf_filter *filt;
+	int enable;
 #endif
 
 	/* This check is no longer done by usbnet */
@@ -1977,16 +1981,19 @@ static int smsc95xx_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 			}
 
 #if defined(USE_ESBPF)
-			rcu_read_lock();
-			filt = rcu_dereference(pdata->helper_filter);
-			if (filt && esbpf_run_filter(filt, skb) > 0) {
+			enable = atomic_read(&pdata->helper_enable);
+			if (enable) {
+				rcu_read_lock();
+				filt = rcu_dereference(pdata->helper_filter);
+				if (filt && esbpf_run_filter(filt, skb) > 0) {
+					rcu_read_unlock();
+					/* If the _skb_ is matched to the filter rule,
+					 * don't pass it to upper layers. Let it get
+					 * cleaned up instead. */
+					return 0;
+				}
 				rcu_read_unlock();
-				/* If the _skb_ is matched to the filter rule,
-				 * don't pass it to upper layers. Let it get
-				 * cleaned up instead. */
-				return 0;
 			}
-			rcu_read_unlock();
 #endif /* USE_ESBPF */
 
 			/* last frame in this batch */
