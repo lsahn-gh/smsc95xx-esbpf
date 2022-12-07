@@ -82,8 +82,8 @@ struct smsc95xx_priv {
 	struct proc_dir_entry *root;
 	struct esbpf_helper esb_helper;
 #define helper_enable esb_helper.rx_enable
-#define helper_filter esb_helper.rx_filter
-#define helper_filter_lock esb_helper.rx_filter_lock
+#define helper_hooks esb_helper.rx_hooks
+#define helper_hooks_lock esb_helper.rx_hooks_lock
 #endif /* USE_ESBPF */
 };
 
@@ -1364,12 +1364,12 @@ static void smsc95xx_unbind(struct usbnet *dev, struct usb_interface *intf)
 #if defined(USE_ESBPF)
 	atomic_set_release(&pdata->helper_enable, ESBPF_OFF);
 
-	spin_lock(&pdata->helper_filter_lock);
-	filt = rcu_dereference_protected(pdata->helper_filter,
-		    lockdep_is_held(&pdata->helper_filter_lock));
+	spin_lock(&pdata->helper_hooks_lock);
+	filt = rcu_dereference_protected(pdata->helper_hooks,
+		    lockdep_is_held(&pdata->helper_hooks_lock));
 	if (filt)
-		rcu_assign_pointer(pdata->helper_filter, NULL);
-	spin_unlock(&pdata->helper_filter_lock);
+		rcu_assign_pointer(pdata->helper_hooks, NULL);
+	spin_unlock(&pdata->helper_hooks_lock);
 
 	if (filt)
 		esbpf_release_filter_raw(filt);
@@ -1984,7 +1984,7 @@ static int smsc95xx_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 			enable = atomic_read(&pdata->helper_enable);
 			if (enable) {
 				rcu_read_lock();
-				filt = rcu_dereference(pdata->helper_filter);
+				filt = rcu_dereference(pdata->helper_hooks);
 				if (filt && esbpf_run_filter(filt, skb) > 0) {
 					rcu_read_unlock();
 					/* If the _skb_ is matched to the filter rule,
